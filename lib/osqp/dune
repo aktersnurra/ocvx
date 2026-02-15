@@ -1,6 +1,5 @@
 (library
  (name osqp)
- (modules bindings)
- ; (public_name ocvx-osqp)
+ (modules api)
  (libraries ctypes ctypes.foreign)
  (c_library_flags (-losqp)))
