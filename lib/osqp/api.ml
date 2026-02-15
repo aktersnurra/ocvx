@@ -85,7 +85,6 @@ let csc_of_dense rows =
   {
     nrows;
     ncols;
-    ncols : int;
     values = Array.of_list vals;
     row_indices = Array.of_list idxs;
     col_pointers = Array.of_list ptrs;
@@ -94,10 +93,24 @@ let csc_of_dense rows =
 let define_problem ~p ~q ~a ~l ~u = 
   let p = csc_of_dense p in
   let a = csc_of_dense a in
+
   let p_x, p_x_ptr = to_carray t:osqp_float p.values in
   let p_i, p_i_ptr = to_carray t:osqp_int p.row_indices in
   let p_p, p_p_ptr = to_carray t:osqp_int p.col_pointers in
   let p_nnz = nnz p in
+
+
+  let a_x, a_x_ptr = to_carray t:osqp_float a.values in
+  let a_i, a_i_ptr = to_carray t:osqp_int a.row_indices in
+  let a_p, a_p_ptr = to_carray t:osqp_int a.col_pointers in
+  let a_nnz = nnz a in
+  
+  let n = p.ncols in
+  let m = a.nrows in
+
+  let p = osqp_csc_matrix_new n n p_nnz p_x_ptr p_i_ptr p_p_ptr in
+  let a = osqp_csc_matrix_new m n a_nnz a_x_ptr a_i_ptr a_p_ptr in
+  
 
 let setup_settings = ()
 let setup_solver = ()
