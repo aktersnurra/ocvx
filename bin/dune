@@ -1,4 +1,5 @@
 (executable
  (public_name ocvx)
  (name main)
- (libraries ocvx))
+ (libraries ctypes ctypes.foreign)
+ (link_flags (-cclib -losqp)))
