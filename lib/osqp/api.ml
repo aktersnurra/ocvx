@@ -10,6 +10,25 @@ type csc_matrix = {
   col_pointers : int array;
 }
 
+type osqp_matix = {
+  ptr: osqp_csc_matrix structure ptr;
+  _x: float CArray.t;
+  _i: int64 CArray.t;
+  _p: int64 CArray.t;
+}
+
+type t = {
+  solver: Bindings.osqp_solver structure ptr;
+  n: int;
+  m: int;
+  _p : osqp_matrix;
+  _a: osqp_matrix;
+  _q: float CArray.t;
+  _l: float CArray.t;
+  _u: float CArray.t;
+}
+
+
 type settings = {
   alpha : float;
   verbose : bool;
@@ -90,6 +109,22 @@ let csc_of_dense rows =
     col_pointers = Array.of_list ptrs;
   }
 
+let osqp_of_csc csc = 
+  let x, x_ptr = to_carray ~t:osqp_float csc.values in
+let i, i_ptr = to_carray ~t:osqp_int csc.values in
+let p, p_ptr = to_carray ~t:osqp_float csc.values in
+let ptr = osqp_csc_matrix_new csc.nrows csc.ncols (nnz csc) x_ptr i_ptr p_ptr
+in
+  {
+    ptr; _x: x; _i: i; _p; p
+
+  }
+
+let update_settings s = ()
+
+let extract_solution t = ()
+
+
 let define_problem ~p ~q ~a ~l ~u = 
   let p = csc_of_dense p in
   let a = csc_of_dense a in
@@ -111,6 +146,10 @@ let define_problem ~p ~q ~a ~l ~u =
   let p = osqp_csc_matrix_new n n p_nnz p_x_ptr p_i_ptr p_p_ptr in
   let a = osqp_csc_matrix_new m n a_nnz a_x_ptr a_i_ptr a_p_ptr in
   
+
+let setup ?(settings : default_settings) ~p ~q ~a ~l ~u = 
+
+
 
 let setup_settings = ()
 let setup_solver = ()

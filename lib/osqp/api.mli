@@ -1,3 +1,5 @@
+type csc_matix
+
 type settings = {
   alpha : float;
   verbose: bool;
@@ -15,3 +17,11 @@ let default = {
   eps_rel = 1e-3;
   polish = false;
 }
+
+type t
+
+val setup : settings -> p:float array -> q:float array -> a:float array -> l:float array -> u:float array -> t
+val solve : t -> () result
+val warm_start: t -> x:float array -> y:float array -> () result
+(* val update_data_vec: t -> q:float array -> l:float array -> u:float array -> () result *)
+(* val update_data_mat: t -> q:float array -> l:float array -> u:float array -> () result *)
