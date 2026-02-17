@@ -5,11 +5,11 @@
 (generate_opam_files true)
 
 (source
- (github username/reponame))
+ (github aktersnurra/ocvx))
 
-(authors "Author Name <author@example.com>")
+(authors "Gustaf Rydholm <gustaf@gustafrydholm.xyz>")
 
-(maintainers "Maintainer Name <maintainer@example.com>")
+(maintainers "Gustaf Rydholm <gustaf@gustafrydholm.xyz>")
 
 (license LICENSE)
 
@@ -17,12 +17,13 @@
 
 (package
  (name ocvx)
- (synopsis "A short synopsis")
- (description "A longer description")
- (depends 
-   ocaml
-   (ppx_deriving (>= 5.2)))
+ (synopsis "Convex optimization for OCaml with OSQP and SCS solvers")
+ (description
+  "OCaml bindings to OSQP and SCS quadratic/conic solvers with a high-level DSL for portfolio optimization")
+ (depends
+  (ocaml (>= 5.0))
+  (ctypes (>= 0.20))
+  ctypes-foreign
+  (ppx_deriving (>= 5.2)))
  (tags
-  ("add topics" "to describe" your project)))
-
-; See the complete stanza docs at https://dune.readthedocs.io/en/stable/reference/dune-project/index.html
+  (optimization "convex-optimization" "quadratic-programming" portfolio osqp scs)))
