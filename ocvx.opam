@@ -23,6 +23,7 @@ depends: [
   "ctypes" {>= "0.20"}
   "ctypes-foreign"
   "ppx_deriving" {>= "5.2"}
+  "alcotest" {with-test}
   "odoc" {with-doc}
 ]
 build: [

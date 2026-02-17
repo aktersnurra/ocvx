@@ -24,6 +24,7 @@
   (ocaml (>= 5.0))
   (ctypes (>= 0.20))
   ctypes-foreign
-  (ppx_deriving (>= 5.2)))
+  (ppx_deriving (>= 5.2))
+  (alcotest :with-test))
  (tags
   (optimization "convex-optimization" "quadratic-programming" portfolio osqp scs)))
