@@ -73,6 +73,9 @@ type error =
   | Solve_failed of status
   | Setting_failed of int
   | Solution_failed of int
+  | Warm_start_failed of int
+  | Update_vectors_failed of int
+  | Update_matrices_failed of int
 
 let status_of_int = function
   | 1 -> Solved
@@ -88,13 +91,13 @@ let status_of_int = function
   | 11 -> Unsolved
   | n -> Unknown n
 
-let float_carray_of_array arr =
+let floats arr =
   let n = Array.length arr in
   let ca = CArray.make Bindings.osqp_float n in
   Array.iteri (fun i v -> CArray.set ca i v) arr;
   (ca, CArray.start ca)
 
-let int_carray_of_array arr =
+let ints arr =
   let n = Array.length arr in
   let ca = CArray.make Bindings.osqp_int n in
   Array.iteri (fun i v -> CArray.set ca i (Int64.of_int v)) arr;
@@ -133,9 +136,9 @@ let csc_of_dense m =
   }
 
 let osqp_of_csc csc =
-  let x, x_ptr = float_carray_of_array csc.values in
-  let i, i_ptr = int_carray_of_array csc.row_indices in
-  let p, p_ptr = int_carray_of_array csc.col_pointers in
+  let x, x_ptr = floats csc.values in
+  let i, i_ptr = ints csc.row_indices in
+  let p, p_ptr = ints csc.col_pointers in
   let ptr =
     Bindings.osqp_csc_matrix_new (Int64.of_int csc.nrows)
       (Int64.of_int csc.ncols)
@@ -171,9 +174,9 @@ let define_qp ~p ~q ~a ~l ~u =
   let m = Array.length l in
   let p = upper_triangular p |> csc_of_dense |> osqp_of_csc in
   let a = csc_of_dense a |> osqp_of_csc in
-  let q, _ = float_carray_of_array q in
-  let l, _ = float_carray_of_array l in
-  let u, _ = float_carray_of_array u in
+  let q, _ = floats q in
+  let l, _ = floats l in
+  let u, _ = floats u in
   { m; n; p; a; q; l; u }
 
 let setup ?(settings = default_settings) ~p ~q ~a ~l ~u () =
@@ -186,15 +189,14 @@ let setup ?(settings = default_settings) ~p ~q ~a ~l ~u () =
     Bindings.osqp_setup solver_ptr qp.p.ptr (CArray.start qp.q) qp.a.ptr
       (CArray.start qp.l) (CArray.start qp.u) (Int64.of_int qp.m)
       (Int64.of_int qp.n) settings
-    |> Int64.to_int
   in
-  match exitflag with
-  | 0 ->
-      let solver = !@solver_ptr in
-      let t = { solver; settings; qp } in
-      Gc.finalise (fun t -> cleanup t) t;
-      Ok t
-  | e -> Error (Setup_failed e)
+  if exitflag = 0L then begin
+    let solver = !@solver_ptr in
+    let t = { solver; settings; qp } in
+    Gc.finalise (fun t -> cleanup t) t;
+    Ok t
+  end
+  else Error (Setup_failed (Int64.to_int exitflag))
 
 let extract_solution solver m n =
   let solution = make Bindings.osqp_solution in
@@ -206,31 +208,68 @@ let extract_solution solver m n =
   setf solution Bindings.Solution.y (CArray.start y_arr);
   setf solution Bindings.Solution.prim_inf_cert (CArray.start pic_arr);
   setf solution Bindings.Solution.dual_inf_cert (CArray.start dic_arr);
-  let exitflag =
-    Bindings.osqp_get_solution solver (addr solution) |> Int64.to_int
-  in
-  match exitflag with
-  | 0 ->
-      let x = Array.init n (fun i -> CArray.get x_arr i) in
-      let y = Array.init m (fun i -> CArray.get y_arr i) in
-      ignore (pic_arr, dic_arr);
-      Ok { x; y }
-  | i -> Error (Solution_failed i)
+  let exitflag = Bindings.osqp_get_solution solver (addr solution) in
+  if exitflag = 0L then begin
+    let x = Array.init n (fun i -> CArray.get x_arr i) in
+    let y = Array.init m (fun i -> CArray.get y_arr i) in
+    ignore (pic_arr, dic_arr);
+    Ok { x; y }
+  end
+  else Error (Solution_failed (Int64.to_int exitflag))
 
 let solve t =
-  let exitflag = Bindings.osqp_solve t.solver |> Int64.to_int in
-  match exitflag with
-  | 0 -> (
-      let info = getf !@(t.solver) Bindings.Solver.info in
-      let status =
-        getf !@info Bindings.Info.status_val |> Int64.to_int |> status_of_int
-      in
-      match status with
-      | Solved ->
-          let* solution = extract_solution t.solver t.qp.m t.qp.n in
-          Ok solution
-      | s -> Error (Solve_failed s))
-  | i -> Error (Solve_failed (Unknown i))
+  let exitflag = Bindings.osqp_solve t.solver in
+  if exitflag = 0L then begin
+    let info = getf !@(t.solver) Bindings.Solver.info in
+    let status =
+      getf !@info Bindings.Info.status_val |> Int64.to_int |> status_of_int
+    in
+    match status with
+    | Solved ->
+        let* solution = extract_solution t.solver t.qp.m t.qp.n in
+        Ok solution
+    | s -> Error (Solve_failed s)
+  end
+  else Error (Solve_failed (Unknown (Int64.to_int exitflag)))
 
-let warm_start t ~x ~y = 
+let warm_start t ?x ?y () =
+  let x = Option.map floats x in
+  let y = Option.map floats y in
+  let exitflag =
+    Bindings.osqp_warm_start t.solver (Option.map snd x) (Option.map snd y)
+    |> Int64.to_int
+  in
+  ignore (x, y);
+  if exitflag = 0 then Ok () else Error (Warm_start_failed exitflag)
 
+let update_vectors t ?q ?l ?u () =
+  let floats_opt = Option.map floats in
+  let q = floats_opt q in
+  let l = floats_opt l in
+  let u = floats_opt u in
+  let exitflag =
+    Bindings.osqp_update_data_vec t.solver (Option.map snd q) (Option.map snd l)
+      (Option.map snd u)
+  in
+  ignore (q, l, u);
+  if exitflag = 0L then Ok ()
+  else Error (Update_vectors_failed (Int64.to_int exitflag))
+
+let update_matrices t ?p ?a () =
+  let length_or_zero = function
+    | Some (ca, _) -> Int64.of_int (CArray.length ca)
+    | None -> 0L
+  in
+  let px =
+    Option.map
+      (fun p -> upper_triangular p |> csc_of_dense |> fun c -> floats c.values)
+      p
+  in
+  let ax = Option.map (fun a -> csc_of_dense a |> fun c -> floats c.values) a in
+  let exitflag =
+    Bindings.osqp_update_data_mat t.solver (Option.map snd px) None
+      (length_or_zero px) (Option.map snd ax) None (length_or_zero ax)
+  in
+  ignore (px, ax);
+  if exitflag = 0L then Ok ()
+  else Error (Update_matrices_failed (Int64.to_int exitflag))

@@ -30,6 +30,9 @@ type error =
   | Solve_failed of status
   | Setting_failed of int
   | Solution_failed of int
+  | Warm_start_failed of int
+  | Update_vectors_failed of int
+  | Update_matrices_failed of int
 
 type t
 
