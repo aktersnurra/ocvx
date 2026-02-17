@@ -1,5 +1,6 @@
 (library
  (name osqp)
- (modules api)
+ (modules api bindings)
+ (private_modules bindings)
  (libraries ctypes ctypes.foreign)
  (c_library_flags (-losqp)))

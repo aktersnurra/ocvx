@@ -148,28 +148,24 @@ let osqp_settings_free =
   foreign "OSQPSettings_free" (ptr osqp_settings @-> returning void)
 
 let osqp_set_default_settings =
-  foreign "osqp_set_default_settings" (ptr osqp_settings @-> returning osqp_int)
+  foreign "osqp_set_default_settings" (ptr osqp_settings @-> returning void)
 
 let osqp_get_solution =
   foreign "osqp_get_solution"
     (ptr osqp_solver @-> ptr osqp_solution @-> returning osqp_int)
 
-(* let osqp_update_data_vec = *)
-(*   foreign "osqp_update_data_vec" *)
-(*     (ptr osqp_solver @-> ptr_opt osqp_float *)
-(*    (* q_new, nullable *) *)
-(*    @-> ptr_opt osqp_float *)
-(*     (* l_new, nullable *) *)
-(*     @-> ptr_opt osqp_float *)
-(*     @-> *)
-(*     (* u_new, nullable *) *)
-(*     returning osqp_int) *)
-(**)
-(* let osqp_warm_start = *)
-(*   foreign "osqp_warm_start" *)
-(*     (ptr osqp_solver @-> ptr_opt osqp_float *)
-(*    (* x *) *)
-(*    @-> ptr_opt osqp_float *)
-(*     @-> *)
-(*     (* y *) *)
-(*     returning osqp_int) *)
+let osqp_update_data_vec =
+  foreign "osqp_update_data_vec"
+    (ptr osqp_solver @-> ptr_opt osqp_float @-> ptr_opt osqp_float
+   @-> ptr_opt osqp_float @-> returning osqp_int)
+
+let osqp_update_data_mat =
+  foreign "osqp_update_data_mat"
+    (ptr osqp_solver @-> ptr_opt osqp_float @-> ptr_opt osqp_int @-> osqp_int
+   @-> ptr_opt osqp_float @-> ptr_opt osqp_int @-> osqp_int
+   @-> returning osqp_int)
+
+let osqp_warm_start =
+  foreign "osqp_warm_start"
+    (ptr osqp_solver @-> ptr_opt osqp_float @-> ptr_opt osqp_float
+   @-> returning osqp_int)

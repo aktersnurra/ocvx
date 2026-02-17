@@ -19,7 +19,9 @@
  (name ocvx)
  (synopsis "A short synopsis")
  (description "A longer description")
- (depends ocaml)
+ (depends 
+   ocaml
+   (ppx_deriving (>= 5.2)))
  (tags
   ("add topics" "to describe" your project)))
 

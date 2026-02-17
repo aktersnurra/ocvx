@@ -1,6 +1,6 @@
 open Ctypes
 open Foreign
-open Bindings 
+open Result.Syntax
 
 type csc_matrix = {
   nrows : int;
@@ -10,24 +10,28 @@ type csc_matrix = {
   col_pointers : int array;
 }
 
-type osqp_matix = {
-  ptr: osqp_csc_matrix structure ptr;
-  _x: float CArray.t;
-  _i: int64 CArray.t;
-  _p: int64 CArray.t;
+type osqp_csc_matix = {
+  ptr : Bindings.osqp_csc_matrix structure ptr;
+  _x : float CArray.t;
+  _i : int64 CArray.t;
+  _p : int64 CArray.t;
+}
+
+type qp = {
+  m : int;
+  n : int;
+  p : osqp_csc_matix;
+  a : osqp_csc_matix;
+  q : float CArray.t;
+  l : float CArray.t;
+  u : float CArray.t;
 }
 
 type t = {
-  solver: Bindings.osqp_solver structure ptr;
-  n: int;
-  m: int;
-  _p : osqp_matrix;
-  _a: osqp_matrix;
-  _q: float CArray.t;
-  _l: float CArray.t;
-  _u: float CArray.t;
+  solver : Bindings.osqp_solver structure ptr;
+  settings : Bindings.osqp_settings structure ptr;
+  qp : qp;
 }
-
 
 type settings = {
   alpha : float;
@@ -48,6 +52,8 @@ let default_settings =
     polish = false;
   }
 
+type solution = { x : float array; y : float array }
+
 type status =
   | Solved
   | Solved_inaccurate
@@ -61,6 +67,12 @@ type status =
   | Sigint
   | Unsolved
   | Unknown of int
+
+type error =
+  | Setup_failed of int
+  | Solve_failed of status
+  | Setting_failed of int
+  | Solution_failed of int
 
 let status_of_int = function
   | 1 -> Solved
@@ -76,25 +88,36 @@ let status_of_int = function
   | 11 -> Unsolved
   | n -> Unknown n
 
-let to_carray ~t arr =
+let float_carray_of_array arr =
   let n = Array.length arr in
-  let ca = CArray.make t n in
+  let ca = CArray.make Bindings.osqp_float n in
   Array.iteri (fun i v -> CArray.set ca i v) arr;
   (ca, CArray.start ca)
 
-let nnz t = Array.length t.values
+let int_carray_of_array arr =
+  let n = Array.length arr in
+  let ca = CArray.make Bindings.osqp_int n in
+  Array.iteri (fun i v -> CArray.set ca i (Int64.of_int v)) arr;
+  (ca, CArray.start ca)
 
-let csc_of_dense rows =
-  let nrows = Array.length rows in
-  let ncols = Array.length rows.(0) in
+let nnz csc = Array.length csc.values
+
+let upper_triangular m =
+  let n = Array.length m in
+  Array.init n (fun i ->
+      Array.init n (fun j -> if j >= i then m.(i).(j) else 0.0))
+
+let csc_of_dense m =
+  let nrows = Array.length m in
+  let ncols = Array.length m.(0) in
   let rec scan_col j vals idxs ptrs =
     if j >= ncols then
       (List.rev vals, List.rev idxs, List.rev (List.length vals :: ptrs))
     else
       let rec scan_row i vals idxs =
         if i >= nrows then (vals, idxs)
-        else if rows.(i).(j) <> 0.0 then
-          scan_row (i + 1) (rows.(i).(j) :: vals) (i :: idxs)
+        else if m.(i).(j) <> 0.0 then
+          scan_row (i + 1) (m.(i).(j) :: vals) (i :: idxs)
         else scan_row (i + 1) vals idxs
       in
       let vals', idxs' = scan_row 0 vals idxs in
@@ -109,54 +132,105 @@ let csc_of_dense rows =
     col_pointers = Array.of_list ptrs;
   }
 
-let osqp_of_csc csc = 
-  let x, x_ptr = to_carray ~t:osqp_float csc.values in
-let i, i_ptr = to_carray ~t:osqp_int csc.values in
-let p, p_ptr = to_carray ~t:osqp_float csc.values in
-let ptr = osqp_csc_matrix_new csc.nrows csc.ncols (nnz csc) x_ptr i_ptr p_ptr
-in
-  {
-    ptr; _x: x; _i: i; _p; p
+let osqp_of_csc csc =
+  let x, x_ptr = float_carray_of_array csc.values in
+  let i, i_ptr = int_carray_of_array csc.row_indices in
+  let p, p_ptr = int_carray_of_array csc.col_pointers in
+  let ptr =
+    Bindings.osqp_csc_matrix_new (Int64.of_int csc.nrows)
+      (Int64.of_int csc.ncols)
+      (Int64.of_int (nnz csc))
+      x_ptr i_ptr p_ptr
+  in
+  { ptr; _x = x; _i = i; _p = p }
 
-  }
+let configure_settings settings =
+  let s_ptr = Bindings.osqp_settings_new () in
+  Bindings.osqp_set_default_settings s_ptr;
+  if settings <> default_settings then begin
+    let s = !@s_ptr in
+    setf s Bindings.Settings.verbose
+      (Int64.of_int (if settings.verbose then 1 else 0));
+    setf s Bindings.Settings.alpha settings.alpha;
+    setf s Bindings.Settings.max_iter (Int64.of_int settings.max_iter);
+    setf s Bindings.Settings.eps_abs settings.eps_abs;
+    setf s Bindings.Settings.eps_rel settings.eps_rel;
+    setf s Bindings.Settings.polishing
+      (Int64.of_int (if settings.polish then 1 else 0))
+  end;
+  s_ptr
 
-let update_settings s = ()
+let cleanup t =
+  Bindings.osqp_cleanup t.solver;
+  Bindings.osqp_csc_matrix_free t.qp.p.ptr;
+  Bindings.osqp_csc_matrix_free t.qp.a.ptr;
+  Bindings.osqp_settings_free t.settings
 
-let extract_solution t = ()
+let define_qp ~p ~q ~a ~l ~u =
+  let n = Array.length q in
+  let m = Array.length l in
+  let p = upper_triangular p |> csc_of_dense |> osqp_of_csc in
+  let a = csc_of_dense a |> osqp_of_csc in
+  let q, _ = float_carray_of_array q in
+  let l, _ = float_carray_of_array l in
+  let u, _ = float_carray_of_array u in
+  { m; n; p; a; q; l; u }
 
+let setup ?(settings = default_settings) ~p ~q ~a ~l ~u () =
+  let settings = configure_settings settings in
+  let qp = define_qp ~p ~q ~a ~l ~u in
+  let solver_ptr =
+    allocate (ptr Bindings.osqp_solver) (from_voidp Bindings.osqp_solver null)
+  in
+  let exitflag =
+    Bindings.osqp_setup solver_ptr qp.p.ptr (CArray.start qp.q) qp.a.ptr
+      (CArray.start qp.l) (CArray.start qp.u) (Int64.of_int qp.m)
+      (Int64.of_int qp.n) settings
+    |> Int64.to_int
+  in
+  match exitflag with
+  | 0 ->
+      let solver = !@solver_ptr in
+      let t = { solver; settings; qp } in
+      Gc.finalise (fun t -> cleanup t) t;
+      Ok t
+  | e -> Error (Setup_failed e)
 
-let define_problem ~p ~q ~a ~l ~u = 
-  let p = csc_of_dense p in
-  let a = csc_of_dense a in
+let extract_solution solver m n =
+  let solution = make Bindings.osqp_solution in
+  let x_arr = CArray.make double n in
+  let y_arr = CArray.make double m in
+  let pic_arr = CArray.make double n in
+  let dic_arr = CArray.make double m in
+  setf solution Bindings.Solution.x (CArray.start x_arr);
+  setf solution Bindings.Solution.y (CArray.start y_arr);
+  setf solution Bindings.Solution.prim_inf_cert (CArray.start pic_arr);
+  setf solution Bindings.Solution.dual_inf_cert (CArray.start dic_arr);
+  let exitflag =
+    Bindings.osqp_get_solution solver (addr solution) |> Int64.to_int
+  in
+  match exitflag with
+  | 0 ->
+      let x = Array.init n (fun i -> CArray.get x_arr i) in
+      let y = Array.init m (fun i -> CArray.get y_arr i) in
+      ignore (pic_arr, dic_arr);
+      Ok { x; y }
+  | i -> Error (Solution_failed i)
 
-  let p_x, p_x_ptr = to_carray t:osqp_float p.values in
-  let p_i, p_i_ptr = to_carray t:osqp_int p.row_indices in
-  let p_p, p_p_ptr = to_carray t:osqp_int p.col_pointers in
-  let p_nnz = nnz p in
+let solve t =
+  let exitflag = Bindings.osqp_solve t.solver |> Int64.to_int in
+  match exitflag with
+  | 0 -> (
+      let info = getf !@(t.solver) Bindings.Solver.info in
+      let status =
+        getf !@info Bindings.Info.status_val |> Int64.to_int |> status_of_int
+      in
+      match status with
+      | Solved ->
+          let* solution = extract_solution t.solver t.qp.m t.qp.n in
+          Ok solution
+      | s -> Error (Solve_failed s))
+  | i -> Error (Solve_failed (Unknown i))
 
+let warm_start t ~x ~y = 
 
-  let a_x, a_x_ptr = to_carray t:osqp_float a.values in
-  let a_i, a_i_ptr = to_carray t:osqp_int a.row_indices in
-  let a_p, a_p_ptr = to_carray t:osqp_int a.col_pointers in
-  let a_nnz = nnz a in
-  
-  let n = p.ncols in
-  let m = a.nrows in
-
-  let p = osqp_csc_matrix_new n n p_nnz p_x_ptr p_i_ptr p_p_ptr in
-  let a = osqp_csc_matrix_new m n a_nnz a_x_ptr a_i_ptr a_p_ptr in
-  
-
-let setup ?(settings : default_settings) ~p ~q ~a ~l ~u = 
-
-
-
-let setup_settings = ()
-let setup_solver = ()
-let extract_solution = ()
-
-let solve ?(settings : default_settings) ~p ~q ~a ~l ~u = ()
-(* define *)
-(* setup *)
-(* solve *)
-(* cleanup *)
