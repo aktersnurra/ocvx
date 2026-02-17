@@ -2,12 +2,17 @@ type t
 type solution = { x : float array; y : float array; s : float array }
 
 type status =
+  | Failed
+  | Indeterminate
+  | Infeasible
+  | Infeasible_inaccurate
+  | Max_iter_reached
+  | Sigint
   | Solved
   | Solved_inaccurate
-  | Infeasible
   | Unbounded
-  | Max_iter_reached
-  | Failed
+  | Unbounded_inaccurate
+  | Unfinished
   | Unknown of int
 
 type info = {
