@@ -1,3 +1,7 @@
 (test
  (name test_osqp)
  (libraries osqp alcotest))
+
+(test
+ (name test_common)
+ (libraries common alcotest))

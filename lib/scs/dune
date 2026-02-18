@@ -2,5 +2,5 @@
  (name scs)
  (modules scs bindings)
  (private_modules bindings)
- (libraries ctypes ctypes.foreign)
+ (libraries common ctypes ctypes.foreign)
  (c_library_flags (-losqp)))
