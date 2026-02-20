@@ -13,12 +13,33 @@ type status =
   | Unknown of int
 
 type settings = {
-  alpha : float;
+  device : int;
   verbose : bool;
+  warm_starting : bool;
+  scaling : int;
+  polishing : bool;
+  rho : float;
+  rho_is_vec : bool;
+  sigma : float;
+  alpha : float;
+  cg_max_iter : int;
+  cg_tol_reduction : int;
+  cg_tol_fraction : float;
+  adaptive_rho : int;
+  adaptive_rho_interval : int;
+  adaptive_rho_fraction : float;
+  adaptive_rho_tolerance : float;
   max_iter : int;
   eps_abs : float;
   eps_rel : float;
-  polish : bool;
+  eps_prim_inf : float;
+  eps_dual_inf : float;
+  scaled_termination : bool;
+  check_termination : int;
+  check_dualgap : bool;
+  time_limit : float;
+  delta : float;
+  polish_refine_iter : int;
 }
 
 type solution = { x : float array; y : float array }

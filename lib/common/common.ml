@@ -37,3 +37,14 @@ let csc_of_dense m =
     row_indices = Array.of_list idxs;
     col_pointers = Array.of_list ptrs;
   }
+
+let check_symmetric m =
+  let n = Array.length m in
+  let rec check i j =
+    if i >= n then Ok m
+    else if j >= n then check (i + 1) (i + 2)
+    else if Float.abs (m.(i).(j) -. m.(j).(i)) > 1e-10 then
+      Error (Printf.sprintf "not symmetric at (%d,%d): %f != %f" i j m.(i).(j) m.(j).(i))
+    else check i (j + 1)
+  in
+  check 0 1

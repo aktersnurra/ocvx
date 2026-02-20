@@ -27,22 +27,64 @@ type t = {
 }
 
 type settings = {
-  alpha : float;
+  device : int;
   verbose : bool;
+  warm_starting : bool;
+  scaling : int;
+  polishing : bool;
+  rho : float;
+  rho_is_vec : bool;
+  sigma : float;
+  alpha : float;
+  cg_max_iter : int;
+  cg_tol_reduction : int;
+  cg_tol_fraction : float;
+  adaptive_rho : int;
+  adaptive_rho_interval : int;
+  adaptive_rho_fraction : float;
+  adaptive_rho_tolerance : float;
   max_iter : int;
   eps_abs : float;
   eps_rel : float;
-  polish : bool;
+  eps_prim_inf : float;
+  eps_dual_inf : float;
+  scaled_termination : bool;
+  check_termination : int;
+  check_dualgap : bool;
+  time_limit : float;
+  delta : float;
+  polish_refine_iter : int;
 }
 
 let default_settings =
   {
-    alpha = 1.6;
+    device = 0;
     verbose = true;
-    max_iter = 4_000;
+    warm_starting = true;
+    scaling = 10;
+    polishing = false;
+    rho = 0.1;
+    rho_is_vec = true;
+    sigma = 1e-6;
+    alpha = 1.6;
+    cg_max_iter = 20;
+    cg_tol_reduction = 10;
+    cg_tol_fraction = 0.15;
+    adaptive_rho = 1;
+    adaptive_rho_interval = 50;
+    adaptive_rho_fraction = 0.4;
+    adaptive_rho_tolerance = 5.0;
+    max_iter = 4000;
     eps_abs = 1e-3;
     eps_rel = 1e-3;
-    polish = false;
+    eps_prim_inf = 1e-4;
+    eps_dual_inf = 1e-4;
+    scaled_termination = false;
+    check_termination = 25;
+    check_dualgap = true;
+    time_limit = 1e10;
+    delta = 1e-6;
+    polish_refine_iter = 3;
   }
 
 type solution = { x : float array; y : float array }
@@ -99,20 +141,48 @@ let osqp_of_csc csc =
   in
   { ptr; _x = x; _i = i; _p = p }
 
+let osqp_int_of_bool b = Int64.of_int (if b then 1 else 0)
+let ospq_int_of_int = Int64.of_int
+
 let configure_settings settings =
   let s_ptr = Bindings.osqp_settings_new () in
   Bindings.osqp_set_default_settings s_ptr;
-  if settings <> default_settings then begin
-    let s = !@s_ptr in
-    setf s Bindings.Settings.verbose
-      (Int64.of_int (if settings.verbose then 1 else 0));
-    setf s Bindings.Settings.alpha settings.alpha;
-    setf s Bindings.Settings.max_iter (Int64.of_int settings.max_iter);
-    setf s Bindings.Settings.eps_abs settings.eps_abs;
-    setf s Bindings.Settings.eps_rel settings.eps_rel;
-    setf s Bindings.Settings.polishing
-      (Int64.of_int (if settings.polish then 1 else 0))
-  end;
+  let s = !@s_ptr in
+  setf s Bindings.Settings.device (ospq_int_of_int settings.device);
+  setf s Bindings.Settings.verbose (osqp_int_of_bool settings.verbose);
+  setf s Bindings.Settings.warm_starting
+    (osqp_int_of_bool settings.warm_starting);
+  setf s Bindings.Settings.scaling (ospq_int_of_int settings.scaling);
+  setf s Bindings.Settings.polishing (osqp_int_of_bool settings.polishing);
+  setf s Bindings.Settings.rho settings.rho;
+  setf s Bindings.Settings.rho_is_vec (osqp_int_of_bool settings.rho_is_vec);
+  setf s Bindings.Settings.sigma settings.sigma;
+  setf s Bindings.Settings.alpha settings.alpha;
+  setf s Bindings.Settings.cg_max_iter (ospq_int_of_int settings.cg_max_iter);
+  setf s Bindings.Settings.cg_tol_reduction
+    (ospq_int_of_int settings.cg_tol_reduction);
+  setf s Bindings.Settings.cg_tol_fraction settings.cg_tol_fraction;
+  setf s Bindings.Settings.adaptive_rho (ospq_int_of_int settings.adaptive_rho);
+  setf s Bindings.Settings.adaptive_rho_interval
+    (ospq_int_of_int settings.adaptive_rho_interval);
+  setf s Bindings.Settings.adaptive_rho_fraction settings.adaptive_rho_fraction;
+  setf s Bindings.Settings.adaptive_rho_tolerance
+    settings.adaptive_rho_tolerance;
+  setf s Bindings.Settings.max_iter (ospq_int_of_int settings.max_iter);
+  setf s Bindings.Settings.eps_abs settings.eps_abs;
+  setf s Bindings.Settings.eps_rel settings.eps_rel;
+  setf s Bindings.Settings.eps_prim_inf settings.eps_prim_inf;
+  setf s Bindings.Settings.eps_dual_inf settings.eps_dual_inf;
+  setf s Bindings.Settings.scaled_termination
+    (osqp_int_of_bool settings.scaled_termination);
+  setf s Bindings.Settings.check_termination
+    (ospq_int_of_int settings.check_termination);
+  setf s Bindings.Settings.check_dualgap
+    (osqp_int_of_bool settings.check_dualgap);
+  setf s Bindings.Settings.time_limit settings.time_limit;
+  setf s Bindings.Settings.delta settings.delta;
+  setf s Bindings.Settings.polish_refine_iter
+    (ospq_int_of_int settings.polish_refine_iter);
   s_ptr
 
 let cleanup t =
@@ -124,16 +194,18 @@ let cleanup t =
 let define_qp ~p ~q ~a ~l ~u =
   let n = Array.length q in
   let m = Array.length l in
-  let p = upper_triangular p |> csc_of_dense |> osqp_of_csc in
+  let* p =
+    check_symmetric p |> upper_triangular |> csc_of_dense |> osqp_of_csc
+  in
   let a = csc_of_dense a |> osqp_of_csc in
   let q, _ = floats q in
   let l, _ = floats l in
   let u, _ = floats u in
-  { m; n; p; a; q; l; u }
+  Ok { m; n; p; a; q; l; u }
 
 let setup ?(settings = default_settings) ~p ~q ~a ~l ~u () =
   let settings = configure_settings settings in
-  let qp = define_qp ~p ~q ~a ~l ~u in
+  let* qp = define_qp ~p ~q ~a ~l ~u in
   let solver_ptr =
     allocate (ptr Bindings.osqp_solver) (from_voidp Bindings.osqp_solver null)
   in

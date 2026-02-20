@@ -70,6 +70,61 @@ let test_nnz_full () =
   let csc = Common.csc_of_dense [| [| 1.0; 2.0 |]; [| 3.0; 4.0 |] |] in
   Alcotest.(check int) "nnz" 4 (Common.nnz csc)
 
+(* check_symmetric *)
+
+let test_check_symmetric_identity () =
+  let m = [| [| 1.0; 0.0 |]; [| 0.0; 1.0 |] |] in
+  Alcotest.(check bool) "identity is symmetric" true
+    (Result.is_ok (Common.check_symmetric m))
+
+let test_check_symmetric_2x2 () =
+  let m = [| [| 4.0; 1.0 |]; [| 1.0; 2.0 |] |] in
+  Alcotest.(check bool) "symmetric 2x2" true
+    (Result.is_ok (Common.check_symmetric m))
+
+let test_check_symmetric_3x3 () =
+  let m =
+    [| [| 1.0; 2.0; 3.0 |]; [| 2.0; 4.0; 5.0 |]; [| 3.0; 5.0; 6.0 |] |]
+  in
+  Alcotest.(check bool) "symmetric 3x3" true
+    (Result.is_ok (Common.check_symmetric m))
+
+let test_check_symmetric_1x1 () =
+  let m = [| [| 42.0 |] |] in
+  Alcotest.(check bool) "1x1 trivially symmetric" true
+    (Result.is_ok (Common.check_symmetric m))
+
+let test_check_symmetric_returns_input () =
+  let m = [| [| 1.0; 2.0 |]; [| 2.0; 1.0 |] |] in
+  match Common.check_symmetric m with
+  | Error _ -> Alcotest.fail "expected Ok"
+  | Ok r -> Alcotest.(check bool) "returns same physical matrix" true (r == m)
+
+let test_check_symmetric_not_symmetric () =
+  let m = [| [| 1.0; 2.0 |]; [| 3.0; 4.0 |] |] in
+  Alcotest.(check bool) "not symmetric returns Error" true
+    (Result.is_error (Common.check_symmetric m))
+
+let test_check_symmetric_error_message () =
+  let m =
+    [| [| 1.0; 2.0; 3.0 |]; [| 2.0; 4.0; 9.0 |]; [| 3.0; 5.0; 6.0 |] |]
+  in
+  match Common.check_symmetric m with
+  | Ok _ -> Alcotest.fail "expected Error"
+  | Error msg ->
+    Alcotest.(check string) "error prefix" "not symmetric at"
+      (String.sub msg 0 16)
+
+let test_check_symmetric_within_tolerance () =
+  let m = [| [| 1.0; 2.0 +. 5e-11 |]; [| 2.0; 1.0 |] |] in
+  Alcotest.(check bool) "within 1e-10 tolerance is Ok" true
+    (Result.is_ok (Common.check_symmetric m))
+
+let test_check_symmetric_beyond_tolerance () =
+  let m = [| [| 1.0; 2.0 +. 2e-10 |]; [| 2.0; 1.0 |] |] in
+  Alcotest.(check bool) "beyond 1e-10 tolerance is Error" true
+    (Result.is_error (Common.check_symmetric m))
+
 let () =
   Alcotest.run "Common"
     [
@@ -95,5 +150,23 @@ let () =
           Alcotest.test_case "identity" `Quick test_nnz_identity;
           Alcotest.test_case "all zeros" `Quick test_nnz_zeros;
           Alcotest.test_case "full matrix" `Quick test_nnz_full;
+        ] );
+      ( "check_symmetric",
+        [
+          Alcotest.test_case "identity" `Quick test_check_symmetric_identity;
+          Alcotest.test_case "2x2" `Quick test_check_symmetric_2x2;
+          Alcotest.test_case "3x3" `Quick test_check_symmetric_3x3;
+          Alcotest.test_case "1x1 trivially symmetric" `Quick
+            test_check_symmetric_1x1;
+          Alcotest.test_case "returns input matrix" `Quick
+            test_check_symmetric_returns_input;
+          Alcotest.test_case "not symmetric" `Quick
+            test_check_symmetric_not_symmetric;
+          Alcotest.test_case "error message format" `Quick
+            test_check_symmetric_error_message;
+          Alcotest.test_case "within tolerance" `Quick
+            test_check_symmetric_within_tolerance;
+          Alcotest.test_case "beyond tolerance" `Quick
+            test_check_symmetric_beyond_tolerance;
         ] );
     ]
