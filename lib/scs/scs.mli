@@ -26,7 +26,18 @@ type info = {
 }
 
 type error = Init_failed | Solve_failed of status
-type cone = { z : int; l : int; q : int array; ep : int }
+type cone = {
+  z : int;
+  l : int;
+  bu : float array;
+  bl : float array;
+  q : int array;
+  s : int array;
+  cs : int array;
+  ep : int;
+  ed : int;
+  p : float array;
+}
 
 type settings = {
   max_iters : int;

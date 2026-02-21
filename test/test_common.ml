@@ -70,8 +70,6 @@ let test_nnz_full () =
   let csc = Common.csc_of_dense [| [| 1.0; 2.0 |]; [| 3.0; 4.0 |] |] in
   Alcotest.(check int) "nnz" 4 (Common.nnz csc)
 
-(* check_symmetric *)
-
 let test_check_symmetric_identity () =
   let m = [| [| 1.0; 0.0 |]; [| 0.0; 1.0 |] |] in
   Alcotest.(check bool) "identity is symmetric" true

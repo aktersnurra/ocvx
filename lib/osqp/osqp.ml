@@ -22,7 +22,6 @@ type qp = {
 
 type t = {
   solver : Bindings.osqp_solver structure ptr;
-  settings : Bindings.osqp_settings structure ptr;
   qp : qp;
 }
 
@@ -195,7 +194,8 @@ let define_qp ~p ~q ~a ~l ~u =
   let n = Array.length q in
   let m = Array.length l in
   let* p =
-    check_symmetric p |> upper_triangular |> csc_of_dense |> osqp_of_csc
+    check_symmetric p
+    |> Result.map (fun p -> upper_triangular p |> csc_of_dense |> osqp_of_csc)
   in
   let a = csc_of_dense a |> osqp_of_csc in
   let q, _ = floats q in
@@ -216,7 +216,7 @@ let setup ?(settings = default_settings) ~p ~q ~a ~l ~u () =
   in
   if exitflag = 0L then begin
     let solver = !@solver_ptr in
-    let t = { solver; settings; qp } in
+    let t = { solver; qp } in
     Gc.finalise (fun t -> cleanup t) t;
     Ok t
   end

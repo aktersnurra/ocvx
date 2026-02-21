@@ -29,7 +29,7 @@ let status_of_int = function
   | 2 -> Solved_inaccurate
   | n -> Unknown n
 
-type t = { scs_work : Bindings.scs_work structure ptr }
+type t = { scs_work : Bindings.scs_work structure ptr; m : int; n : int }
 type solution = { x : float array; y : float array; s : float array }
 
 type info = {
@@ -41,7 +41,7 @@ type info = {
   solve_time : float;
 }
 
-type error = Init_failed | Solve_failed of status
+type error = Init_failed | Solve_failed of status | Invalid_data of string
 
 type cone = {
   z : int;
@@ -105,8 +105,17 @@ let default_settings =
     acceleration_interval = 10;
   }
 
-let floats arr = to_carray ~t:Bindings.scs_float ~f:Fun.id
-let ints arr = to_carray ~t:Bindings.scs_int ~f:Fun.id
+let floats arr = to_carray ~t:Bindings.scs_float ~f:Fun.id arr
+let ints arr = to_carray ~t:Bindings.scs_int ~f:Fun.id arr
+
+let carray_opt ~f arr =
+  if Array.length arr = 0 then (None, None)
+  else
+    let ca, ptr = f arr in
+    (Some ca, Some ptr)
+
+let floats_opt = carray_opt ~f:floats
+let ints_opt = carray_opt ~f:ints
 
 let scs_of_csc csc =
   let x, x_ptr = floats csc.values in
@@ -118,31 +127,42 @@ let scs_of_csc csc =
   setf mat Bindings.Matrix.p p_ptr;
   setf mat Bindings.Matrix.m csc.nrows;
   setf mat Bindings.Matrix.n csc.ncols;
-  (mat, x, i, p)
+  (mat, (x, i, p))
 
-let to_scs_data ~a ~p ~b ~c =
+let to_scs_data ~a ?p ~b ~c () =
+  let prepare_p = function
+    | None -> Ok (None, None)
+    | Some p ->
+        check_symmetric p
+        |> Result.map_error (fun e -> Invalid_data e)
+        |> Result.map (fun p ->
+            let mat, _p = upper_triangular p |> csc_of_dense |> scs_of_csc in
+            (Some mat, Some _p))
+  in
   let m = Array.length a in
-  let n = Array.length a.(0) in 
-  let* p = check_symmetric p |> upper_triangular |> csc_of_dense |> scs_of_csc in
-  let* a = csc_of_dense a |> scs_of_csc in
-  let b, b_ptr = floats b in
-  let c, c_ptr = floats c in
+  let n = Array.length a.(0) in
+  let a_mat, _a = csc_of_dense a |> scs_of_csc in
+  let* p_mat, _p = prepare_p p in
+  let _b, b_ptr = floats b in
+  let _c, c_ptr = floats c in
   let data = make Bindings.scs_data in
   setf data Bindings.Data.m m;
   setf data Bindings.Data.n n;
-  setf data Bindings.Data.a a;
-  setf data Bindings.Data.p p;
-  setf data Bindings.Data.b b;
-  setf data Bindings.Data.c c;
-  data
+  setf data Bindings.Data.a (addr a_mat);
+  setf data Bindings.Data.p (Option.map addr p_mat);
+  setf data Bindings.Data.b b_ptr;
+  setf data Bindings.Data.c c_ptr;
+  ignore (_a, _p, _b, _c);
+  Ok (data, m, n)
 
 let configure_settings settings =
+  let scs_int_of_bool b = if b then 1 else 0 in
   let s = make Bindings.scs_settings in
   Bindings.scs_set_default_settings (addr s);
-  setf s Bindings.Settings.normalize (if settings.normalize then 1 else 0);
+  setf s Bindings.Settings.normalize (scs_int_of_bool settings.normalize);
   setf s Bindings.Settings.scale settings.scale;
   setf s Bindings.Settings.adaptive_scale
-    (if settings.adaptive_scale then 1 else 0);
+    (scs_int_of_bool settings.adaptive_scale);
   setf s Bindings.Settings.rho_x settings.rho_x;
   setf s Bindings.Settings.max_iters settings.max_iters;
   setf s Bindings.Settings.eps_abs settings.eps_abs;
@@ -150,15 +170,11 @@ let configure_settings settings =
   setf s Bindings.Settings.eps_infeas settings.eps_infeas;
   setf s Bindings.Settings.alpha settings.alpha;
   setf s Bindings.Settings.time_limit_secs settings.time_limit_secs;
-  setf s Bindings.Settings.verbose (if settings.verbose then 1 else 0);
-  setf s Bindings.Settings.warm_start (if settings.warm_start then 1 else 0);
+  setf s Bindings.Settings.verbose (scs_int_of_bool settings.verbose);
+  setf s Bindings.Settings.warm_start (scs_int_of_bool settings.warm_start);
   setf s Bindings.Settings.acceleration_lookback settings.acceleration_lookback;
   setf s Bindings.Settings.acceleration_interval settings.acceleration_interval;
   s
-
-let array_opt ~f arr =
-  if Array.length arr = 0 then (None, None)
-  else let ca, ptr = f arr in (Some ca, Some ptr)
 
 let configure_cone cone =
   let k = make Bindings.scs_cone in
@@ -166,36 +182,38 @@ let configure_cone cone =
   setf k Bindings.Cone.l cone.l;
   setf k Bindings.Cone.ep cone.ep;
   setf k Bindings.Cone.ed cone.ed;
-  let bu, bu_ptr = array_opt ~f:floats cone.bu in
-  let bl, bl_ptr = array_opt ~f:floats cone.bl in
+  let _bu, bu_ptr = floats_opt cone.bu in
+  let _bl, bl_ptr = floats_opt cone.bl in
   setf k Bindings.Cone.bu bu_ptr;
   setf k Bindings.Cone.bl bl_ptr;
   setf k Bindings.Cone.bsize (Array.length cone.bu + 1);
-  let q, q_ptr = array_opt ~f:ints cone.q in
+  let _q, q_ptr = ints_opt cone.q in
   setf k Bindings.Cone.q q_ptr;
   setf k Bindings.Cone.qsize (Array.length cone.q);
-  let s, s_ptr = array_opt ~f:ints cone.s in
+  let _s, s_ptr = ints_opt cone.s in
   setf k Bindings.Cone.s s_ptr;
   setf k Bindings.Cone.ssize (Array.length cone.s);
-  let cs, cs_ptr = array_opt ~f:ints cone.cs in
+  let _cs, cs_ptr = ints_opt cone.cs in
   setf k Bindings.Cone.cs cs_ptr;
   setf k Bindings.Cone.cssize (Array.length cone.cs);
-  let p, p_ptr = array_opt ~f:floats cone.p in
+  let _p, p_ptr = floats_opt cone.p in
   setf k Bindings.Cone.p p_ptr;
   setf k Bindings.Cone.psize (Array.length cone.p);
-  ignore (bu, bl, q, s, cs, p);
+  ignore (_bu, _bl, _q, _s, _cs, _p);
   k
 
-(* * @param  d      Problem data. *)
-(* * @param  k      Cone data. *)
-(* * @param  stgs   SCS solve settings. *)
-(* ScsWork *scs_init(const ScsData *d, const ScsCone *k, const ScsSettings *stgs); *)
-let setup ?(settings = default_settings) ~c ~a ~b ?p cone () =
-  let d = to_scs_data ~m ~n ~a ~p ~b:b_ptr ~c:c_ptr in 
+let cleanup t = Bindings.scs_finish t.work
+
+let setup ?(settings = default_settings) ~c ~a ~b ?p ~cone () =
+  let* d, m, n = to_scs_data ~a ?p ~b ~c () in
   let k = configure_cone cone in
   let stgs = configure_settings settings in
-  let scs_work = Bindings.scs_init d k stgs in
-  { scs_work }
+  let work = Bindings.scs_init (addr d) (addr k) (addr stgs) in
+  if is_null work then Error Init_failed
+  else
+    let t = { work; n; m } in
+    Gc.finalise (fun t -> Bindings.scs_finish t.work) t;
+    Ok t
 
 (* let solve warm_start t = *)
 (**)
