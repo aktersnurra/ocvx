@@ -215,8 +215,17 @@ let setup ?(settings = default_settings) ~c ~a ~b ?p ~cone () =
     Gc.finalise (fun t -> Bindings.scs_finish t.work) t;
     Ok t
 
-(* let solve warm_start t = *)
-(**)
-(**)
+let solve warm_start t =
+  let solution = make Bindings.scs_solution in
+  setf solution Bindings.Solution.x (from_voidp Bindings.scs_float null);
+  setf solution Bindings.Solution.y (from_voidp Bindings.scs_float null);
+  setf solution Bindings.Solution.s (from_voidp Bindings.scs_float null);
+  let info = make Bindings.scs_info in
+  let exitflag = Bindings.scs_solve t.work (addr solution) (addr info) in
+  if exitflag = 0 then Ok ()
+  else exitflag |> status_of_int |> fun s -> Error (Solve_failed s)
+
+
+
 (* let update : *)
 (*   t -> ?b:float array -> ?c:float array -> unit -> (unit, error) result *)
