@@ -22,6 +22,7 @@ type qp = {
 
 type t = {
   solver : Bindings.osqp_solver structure ptr;
+  settings : Bindings.osqp_settings structure ptr;
   qp : qp;
 }
 
@@ -216,7 +217,7 @@ let setup ?(settings = default_settings) ~p ~q ~a ~l ~u () =
   in
   if exitflag = 0L then begin
     let solver = !@solver_ptr in
-    let t = { solver; qp } in
+    let t = { solver; settings; qp } in
     Gc.finalise (fun t -> cleanup t) t;
     Ok t
   end
