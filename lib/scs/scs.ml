@@ -1,6 +1,7 @@
 open Ctypes
 open Foreign
-open Util
+open Result.Syntax
+open Common
 
 type status =
   | Failed
@@ -29,7 +30,7 @@ let status_of_int = function
   | 2 -> Solved_inaccurate
   | n -> Unknown n
 
-type t = { scs_work : Bindings.scs_work structure ptr; m : int; n : int }
+type t = { work : Bindings.scs_work structure ptr; m : int; n : int }
 type solution = { x : float array; y : float array; s : float array }
 
 type info = {
@@ -41,7 +42,11 @@ type info = {
   solve_time : float;
 }
 
-type error = Init_failed | Solve_failed of status | Invalid_data of string
+type error =
+  | Init_failed
+  | Solve_failed of status
+  | Invalid_data of string
+  | Update_failed of int
 
 type cone = {
   z : int;
@@ -116,6 +121,7 @@ let carray_opt ~f arr =
 
 let floats_opt = carray_opt ~f:floats
 let ints_opt = carray_opt ~f:ints
+let scs_int_of_bool b = if b then 1 else 0
 
 let scs_of_csc csc =
   let x, x_ptr = floats csc.values in
@@ -156,7 +162,6 @@ let to_scs_data ~a ?p ~b ~c () =
   Ok (data, m, n)
 
 let configure_settings settings =
-  let scs_int_of_bool b = if b then 1 else 0 in
   let s = make Bindings.scs_settings in
   Bindings.scs_set_default_settings (addr s);
   setf s Bindings.Settings.normalize (scs_int_of_bool settings.normalize);
@@ -186,7 +191,9 @@ let configure_cone cone =
   let _bl, bl_ptr = floats_opt cone.bl in
   setf k Bindings.Cone.bu bu_ptr;
   setf k Bindings.Cone.bl bl_ptr;
-  setf k Bindings.Cone.bsize (Array.length cone.bu + 1);
+  setf k Bindings.Cone.bsize
+    (let n = Array.length cone.bu in
+     if n = 0 then 0 else n + 1);
   let _q, q_ptr = ints_opt cone.q in
   setf k Bindings.Cone.q q_ptr;
   setf k Bindings.Cone.qsize (Array.length cone.q);
@@ -212,20 +219,72 @@ let setup ?(settings = default_settings) ~c ~a ~b ?p ~cone () =
   if is_null work then Error Init_failed
   else
     let t = { work; n; m } in
-    Gc.finalise (fun t -> Bindings.scs_finish t.work) t;
+    Gc.finalise (fun t -> cleanup t) t;
     Ok t
 
-let solve warm_start t =
+let extract_result status solution info m n =
+  let read_and_free ptr len =
+    let arr = Array.init len (fun i -> !@(ptr +@ i)) in
+    Bindings.free (to_voidp ptr);
+    arr
+  in
+  let free_if_nonnull binding =
+    let ptr = getf solution binding in
+    if not (is_null ptr) then Bindings.free (to_voidp ptr)
+  in
+  let extract_info info =
+    {
+      iter = getf info Bindings.Info.iter;
+      status = getf info Bindings.Info.status_val |> status_of_int;
+      pobj = getf info Bindings.Info.pobj;
+      dobj = getf info Bindings.Info.dobj;
+      setup_time = getf info Bindings.Info.setup_time;
+      solve_time = getf info Bindings.Info.solve_time;
+    }
+  in
+  match status with
+  | Solved | Solved_inaccurate ->
+      let x = read_and_free (getf solution Bindings.Solution.x) n in
+      let y = read_and_free (getf solution Bindings.Solution.y) m in
+      let s = read_and_free (getf solution Bindings.Solution.s) m in
+      Ok ({ x; y; s }, extract_info info)
+  | status ->
+      free_if_nonnull Bindings.Solution.x;
+      free_if_nonnull Bindings.Solution.y;
+      free_if_nonnull Bindings.Solution.s;
+      Error (Solve_failed status)
+
+let solve ?(warm_start = false) ?prev_sol t () =
   let solution = make Bindings.scs_solution in
-  setf solution Bindings.Solution.x (from_voidp Bindings.scs_float null);
-  setf solution Bindings.Solution.y (from_voidp Bindings.scs_float null);
-  setf solution Bindings.Solution.s (from_voidp Bindings.scs_float null);
+  let prepare_solution = function
+    | Some p ->
+        let x, x_ptr = floats p.x in
+        let y, y_ptr = floats p.y in
+        let s, s_ptr = floats p.s in
+        setf solution Bindings.Solution.x x_ptr;
+        setf solution Bindings.Solution.y y_ptr;
+        setf solution Bindings.Solution.s s_ptr;
+        ignore (x, y, s)
+    | None ->
+        setf solution Bindings.Solution.x (from_voidp Bindings.scs_float null);
+        setf solution Bindings.Solution.y (from_voidp Bindings.scs_float null);
+        setf solution Bindings.Solution.s (from_voidp Bindings.scs_float null)
+  in
+  prepare_solution prev_sol;
   let info = make Bindings.scs_info in
-  let exitflag = Bindings.scs_solve t.work (addr solution) (addr info) in
+  let status =
+    Bindings.scs_solve t.work (addr solution) (addr info)
+      (scs_int_of_bool warm_start)
+    |> status_of_int
+  in
+  extract_result status solution info t.m t.n
+
+let update t ?b ?c () =
+  let b = Option.map floats b in
+  let c = Option.map floats c in
+  let exitflag =
+    Bindings.scs_update t.work (Option.map snd b) (Option.map snd c)
+  in
+  ignore (b, c);
   if exitflag = 0 then Ok ()
-  else exitflag |> status_of_int |> fun s -> Error (Solve_failed s)
-
-
-
-(* let update : *)
-(*   t -> ?b:float array -> ?c:float array -> unit -> (unit, error) result *)
+  else exitflag |> fun s -> Error (Update_failed s)

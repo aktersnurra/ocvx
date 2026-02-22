@@ -1,5 +1,13 @@
 open Ctypes
 
+type csc_matrix = {
+  nrows : int;
+  ncols : int;
+  values : float array;
+  row_indices : int array;
+  col_pointers : int array;
+}
+
 let to_carray ~t ~f arr =
   let n = Array.length arr in
   let ca = CArray.make t n in

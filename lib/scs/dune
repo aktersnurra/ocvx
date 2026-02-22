@@ -3,4 +3,4 @@
  (modules scs bindings)
  (private_modules bindings)
  (libraries common ctypes ctypes.foreign)
- (c_library_flags (-losqp)))
+ (c_library_flags (-lscsdir)))

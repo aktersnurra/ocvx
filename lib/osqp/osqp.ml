@@ -111,6 +111,7 @@ type error =
   | Warm_start_failed of int
   | Update_vectors_failed of int
   | Update_matrices_failed of int
+  | Invalid_data of string
 
 let status_of_int = function
   | 1 -> Solved
@@ -126,8 +127,8 @@ let status_of_int = function
   | 11 -> Unsolved
   | n -> Unknown n
 
-let floats arr = to_carray ~t:Bindings.osqp_float ~f:Fun.id
-let ints arr = to_carray ~t:Bindings.osqp_int ~f:Int64.of_int
+let floats arr = to_carray ~t:Bindings.osqp_float ~f:Fun.id arr
+let ints arr = to_carray ~t:Bindings.osqp_int ~f:Int64.of_int arr
 
 let osqp_of_csc csc =
   let x, x_ptr = floats csc.values in
@@ -197,6 +198,7 @@ let define_qp ~p ~q ~a ~l ~u =
   let* p =
     check_symmetric p
     |> Result.map (fun p -> upper_triangular p |> csc_of_dense |> osqp_of_csc)
+    |> Result.map_error (fun e -> Invalid_data e)
   in
   let a = csc_of_dense a |> osqp_of_csc in
   let q, _ = floats q in
@@ -250,7 +252,7 @@ let solve t =
       getf !@info Bindings.Info.status_val |> Int64.to_int |> status_of_int
     in
     match status with
-    | Solved ->
+    | Solved | Solved_inaccurate ->
         let* solution = extract_solution t.solver t.qp.m t.qp.n in
         Ok solution
     | s -> Error (Solve_failed s)

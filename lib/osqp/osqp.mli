@@ -54,6 +54,7 @@ type error =
   | Warm_start_failed of int
   | Update_vectors_failed of int
   | Update_matrices_failed of int
+  | Invalid_data of string
 
 type t
 

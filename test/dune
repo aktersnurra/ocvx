@@ -5,3 +5,7 @@
 (test
  (name test_common)
  (libraries common alcotest))
+
+(test
+ (name test_scs)
+ (libraries scs alcotest))

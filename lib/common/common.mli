@@ -11,6 +11,6 @@ type csc_matrix = {
 
 val csc_of_dense : float array array -> csc_matrix
 val nnz : csc_matrix -> int
-val to_carray : t:'a array -> f:('a -> 'b) -> 'b CArray.t * 'b ptr
+val to_carray : t:'a Ctypes.typ -> f:('b -> 'a) -> 'b array -> 'a Ctypes.carray * 'a Ctypes.ptr
 val upper_triangular : float array array -> float array array
 val check_symmetric: float array array -> (float array array, string) result

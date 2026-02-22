@@ -1,5 +1,4 @@
 type t
-
 type solution = { x : float array; y : float array; s : float array }
 
 type status =
@@ -25,7 +24,12 @@ type info = {
   solve_time : float;
 }
 
-type error = Init_failed | Solve_failed of status
+type error =
+  | Init_failed
+  | Solve_failed of status
+  | Invalid_data of string
+  | Update_failed of int
+
 type cone = {
   z : int;
   l : int;
@@ -40,10 +44,20 @@ type cone = {
 }
 
 type settings = {
+  normalize : bool;
+  scale : float;
+  adaptive_scale : bool;
+  rho_x : float;
   max_iters : int;
   eps_abs : float;
   eps_rel : float;
+  eps_infeas : float;
+  alpha : float;
+  time_limit_secs : float;
   verbose : bool;
+  warm_start : bool;
+  acceleration_lookback : int;
+  acceleration_interval : int;
 }
 
 val default_settings : settings
@@ -58,7 +72,12 @@ val setup :
   unit ->
   (t, error) result
 
-val solve : ?warm_start:bool -> t -> (solution * info, error) result
+val solve :
+  ?warm_start:bool ->
+  ?prev_sol:solution ->
+  t ->
+  unit ->
+  (solution * info, error) result
 
 val update :
   t -> ?b:float array -> ?c:float array -> unit -> (unit, error) result

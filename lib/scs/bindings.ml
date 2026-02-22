@@ -6,8 +6,7 @@ let scs_float = double
 
 type scs_work
 
-let scs_work : scs_work structure typ = structure "SCS_WORK"
-let () = seal scs_work
+let scs_work : scs_work structure typ = typedef (structure "SCS_WORK") "SCS_WORK"
 
 type scs_matrix
 
@@ -152,5 +151,7 @@ let scs_finish = foreign "scs_finish" (ptr scs_work @-> returning void)
 
 let scs_set_default_settings =
   foreign "scs_set_default_settings" (ptr scs_settings @-> returning void)
+
+let free = foreign "free" (ptr void @-> returning void)
 
 let scs_version = foreign "scs_version" (void @-> returning string)
