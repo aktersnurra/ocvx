@@ -13,7 +13,7 @@ Convex optimization for OCaml. Native bindings to [OSQP](https://osqp.org) and [
 Requires OSQP and SCS installed on your system.
 
 ```sh
-opam pin add ocvx git+https://github.com/youruser/ocvx.git
+opam pin add ocvx git+https://github.com/aktersnurra/ocvx.git
 ```
 
 ## Usage
