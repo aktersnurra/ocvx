@@ -223,7 +223,8 @@ let setup ?(settings = default_settings) ~c ~a ~b ?p ~cone () =
     Ok t
 
 let extract_result status solution info m n =
-  let read_and_free ptr len =
+  let read_and_free binding len =
+    let ptr = getf solution binding in
     let arr = Array.init len (fun i -> !@(ptr +@ i)) in
     Bindings.free (to_voidp ptr);
     arr
@@ -244,9 +245,9 @@ let extract_result status solution info m n =
   in
   match status with
   | Solved | Solved_inaccurate ->
-      let x = read_and_free (getf solution Bindings.Solution.x) n in
-      let y = read_and_free (getf solution Bindings.Solution.y) m in
-      let s = read_and_free (getf solution Bindings.Solution.s) m in
+      let x = read_and_free Bindings.Solution.x n in
+      let y = read_and_free Bindings.Solution.y m in
+      let s = read_and_free Bindings.Solution.s m in
       Ok ({ x; y; s }, extract_info info)
   | status ->
       free_if_nonnull Bindings.Solution.x;
@@ -286,5 +287,4 @@ let update t ?b ?c () =
     Bindings.scs_update t.work (Option.map snd b) (Option.map snd c)
   in
   ignore (b, c);
-  if exitflag = 0 then Ok ()
-  else exitflag |> fun s -> Error (Update_failed s)
+  if exitflag = 0 then Ok () else exitflag |> fun s -> Error (Update_failed s)

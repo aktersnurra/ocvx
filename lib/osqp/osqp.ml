@@ -201,9 +201,9 @@ let define_qp ~p ~q ~a ~l ~u =
     |> Result.map_error (fun e -> Invalid_data e)
   in
   let a = csc_of_dense a |> osqp_of_csc in
-  let q, _ = floats q in
-  let l, _ = floats l in
-  let u, _ = floats u in
+  let q = floats q |> fst in
+  let l = floats l |> fst in
+  let u = floats u |> fst in
   Ok { m; n; p; a; q; l; u }
 
 let setup ?(settings = default_settings) ~p ~q ~a ~l ~u () =
