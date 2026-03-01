@@ -83,9 +83,12 @@ module Problem = struct
   let compile_conic = ()
   let minimize o c = Minimize (o, c)
   let maximize o c = Maximize (o, c)
+  let compile p = ()
 
   let solve p =
     if is_qp p then compile_qp p |> run_osqp else compile_conic p |> run_scs
+
+  let recompile c p = ()
 end
 
 let ones n = Array.make n 1.0
