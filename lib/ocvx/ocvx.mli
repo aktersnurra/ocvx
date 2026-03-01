@@ -1,31 +1,10 @@
 module Var : sig
   type t
-
-  val create : int -> t
+  val make : int -> t
 end
 
-type _ expr =
-  (* Affine atoms — produce [> `Affine], accepted everywhere *)
-  | Var : Var.t -> [> `Affine ] expr
-  | Const : float array -> [> `Affine ] expr
-  | Scalar : float -> [> `Affine ] expr
-  | Add : 'a expr * 'a expr -> 'a expr
-  | Sub : 'a expr * 'a expr -> 'a expr
-  | Smul : float * 'a expr -> 'a expr
-  | Dot : float array * [> `Affine ] expr -> [> `Affine ] expr
-  | MatMul : float array array * [> `Affine ] expr -> [> `Affine ] expr
-  (* Convex atoms — require affine input, produce convex *)
-  | Quad_form : [ `Affine ] expr * float array array -> [> `Convex ] expr
-  | Norm2 : [ `Affine ] expr -> [> `Convex ] expr
-  | Sum_sq : [ `Affine ] expr -> [> `Convex ] expr
-  | Abs : [ `Affine ] expr -> [> `Convex ] expr
-  (* Concave atoms — require affine input, produce concave *)
-  | Log : [ `Affine ] expr -> [> `Concave ] expr
-  | Sqrt : [ `Affine ] expr -> [> `Concave ] expr
-  (* Negation flips curvature *)
-  | Neg_cvx : [> `Convex ] expr -> [> `Concave ] expr
-  | Neg_ccv : [> `Concave ] expr -> [> `Convex ] expr
-  | Neg_aff : [ `Affine ] expr -> [> `Affine ] expr
+type _ expr
+type error
 
 module Expr : sig
   val var : Var.t -> [> `Affine ] expr
@@ -60,7 +39,7 @@ module Problem : sig
 
   val minimize : [< `Convex | `Affine ] expr -> Constraint.t list -> t
   val maximize : [< `Concave | `Affine ] expr -> Constraint.t list -> t
-  val solve : solver:[ `Osqp | `Scs ] -> t -> (float array, error) result
+  val solve : t -> (float array, error) result
 end
 
 val ones : int -> float array

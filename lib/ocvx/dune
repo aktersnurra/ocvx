@@ -1,0 +1,3 @@
+(library
+ (name ocvx)
+ (libraries osqp scs))
