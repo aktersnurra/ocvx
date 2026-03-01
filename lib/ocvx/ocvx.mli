@@ -1,5 +1,6 @@
 module Var : sig
   type t
+
   val make : int -> t
 end
 
@@ -36,10 +37,13 @@ end
 
 module Problem : sig
   type t
+  type compiled
 
   val minimize : [< `Convex | `Affine ] expr -> Constraint.t list -> t
   val maximize : [< `Concave | `Affine ] expr -> Constraint.t list -> t
+  val compile : t -> (compiled, error) result
   val solve : t -> (float array, error) result
+  val recompile : compiled -> t -> (compiled, error) result
 end
 
 val ones : int -> float array
