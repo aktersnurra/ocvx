@@ -78,17 +78,44 @@ type problem =
 module Problem = struct
   type t = problem
 
-  let is_qp p = ()
-  let compile_qp = ()
-  let compile_conic = ()
-  let minimize o c = Minimize (o, c)
-  let maximize o c = Maximize (o, c)
-  let compile p = ()
+  let is_qp p =
+    let rec is_qp_expr : type a. a expr -> bool = function
+      | Var _ | Const _ | Scalar _ -> true
+      | Add (a, b) | Sub (a, b) -> is_qp_expr a && is_qp_expr b
+      | Smul (_, e)
+      | Dot (_, e)
+      | MatMul (_, e)
+      | Quad_form (e, _)
+      | Sum_sq e
+      | Neg_aff e ->
+          is_qp_expr e
+      | Norm2 _ | Abs _ | Log _ | Sqrt _ | Neg_ccv _ | Neg_cvx _ -> false
+    in
+    let is_linear_expr : type a. a expr -> bool = function
+      | Var _ | Const _ | Scalar _ -> true
+      | Add (a, b) | Sub (a, b) -> is_linear_expr a && is_linear_expr b
+      | Smul (_, e) | Dot (_, e) | Neg_aff e -> is_linear_expr e
+      | _ -> false
+    in
+    let is_linear_constraint_expr = function
+      | Leq (a, b) | Geq (a, b) | Eq (a, b) ->
+          is_linear_expr a && is_linear_expr b
+    in
+    match problem with
+    | Minimize (obj, constrs) ->
+        is_qp_expr obj && List.for_all is_linear_constraint_expr constrs
+    | Maximize _ -> false
 
-  let solve p =
-    if is_qp p then compile_qp p |> run_osqp else compile_conic p |> run_scs
-
-  let recompile c p = ()
+  (* let compile_qp = () *)
+  (* let compile_conic = () *)
+  (* let minimize o c = Minimize (o, c) *)
+  (* let maximize o c = Maximize (o, c) *)
+  (* let compile p = () *)
+  (**)
+  (* let solve p = *)
+  (*   if is_qp p then compile_qp p |> run_osqp else compile_conic p |> run_scs *)
+  (**)
+  (* let recompile c p = () *)
 end
 
 let ones n = Array.make n 1.0
