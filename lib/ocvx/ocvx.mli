@@ -36,7 +36,10 @@ module Constraint : sig
 end
 
 module Problem : sig
-  type t
+  type t =
+    | Minimize : [< `Convex | `Affine ] expr * Constraint.t list -> t
+    | Maximize : [< `Concave | `Affine ] expr * Constraint.t list -> t
+
   type compiled
 
   val minimize : [< `Convex | `Affine ] expr -> Constraint.t list -> t

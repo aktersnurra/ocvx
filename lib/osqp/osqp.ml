@@ -137,7 +137,7 @@ let osqp_of_csc csc =
   let ptr =
     Bindings.osqp_csc_matrix_new (Int64.of_int csc.nrows)
       (Int64.of_int csc.ncols)
-      (Int64.of_int (nnz csc))
+      (Int64.of_int (Csc.nnz csc))
       x_ptr i_ptr p_ptr
   in
   { ptr; _x = x; _i = i; _p = p }
@@ -197,10 +197,10 @@ let define_qp ~p ~q ~a ~l ~u =
   let m = Array.length l in
   let* p =
     check_symmetric p
-    |> Result.map (fun p -> upper_triangular p |> csc_of_dense |> osqp_of_csc)
+    |> Result.map (fun p -> upper_triangular p |> Csc.of_dense |> osqp_of_csc)
     |> Result.map_error (fun e -> Invalid_data e)
   in
-  let a = csc_of_dense a |> osqp_of_csc in
+  let a = Csc.of_dense a |> osqp_of_csc in
   let q = floats q |> fst in
   let l = floats l |> fst in
   let u = floats u |> fst in
@@ -289,10 +289,10 @@ let update_matrices t ?p ?a () =
   in
   let px =
     Option.map
-      (fun p -> upper_triangular p |> csc_of_dense |> fun c -> floats c.values)
+      (fun p -> upper_triangular p |> Csc.of_dense |> fun c -> floats c.values)
       p
   in
-  let ax = Option.map (fun a -> csc_of_dense a |> fun c -> floats c.values) a in
+  let ax = Option.map (fun a -> Csc.of_dense a |> fun c -> floats c.values) a in
   let exitflag =
     Bindings.osqp_update_data_mat t.solver (Option.map snd px) None
       (length_or_zero px) (Option.map snd ax) None (length_or_zero ax)

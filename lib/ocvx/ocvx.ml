@@ -1,67 +1,91 @@
+type error = Osqp_error of Osqp.error | Scs_error of Scs.error
+
 module Var = struct
-  type t = { id : int; dim : int }
+  type t = { id : int; dim : int; index : int option }
 
   let next_id = ref 0
 
   let make dim =
     let id = !next_id in
     incr next_id;
-    { id; dim }
+    { id; dim; index = None }
 end
 
+module Param = struct
+  type t = { id : int; name : string; value : float array array }
+
+  let next_id = ref 0
+
+  let make name value =
+    let id = !next_id in
+    incr next_id;
+    { id; name; value }
+
+  let set p value = { p with value }
+end
+
+(* Closed variant tags — affine is a subtype of both convex and concave *)
+type affine = [ `Affine ]
+type convex = [ `Affine | `Convex ]
+type concave = [ `Affine | `Concave ]
+
 type _ expr =
-  (* Affine atoms — produce [> `Affine], accepted everywhere *)
-  | Var : Var.t -> [> `Affine ] expr
-  | Const : float array -> [> `Affine ] expr
-  | Scalar : float -> [> `Affine ] expr
+  (* Affine atoms *)
+  | Var : Var.t -> affine expr
+  | Param : Param.t -> affine expr
+  | Const : float array -> affine expr
+  | Scalar : float -> affine expr
   | Add : 'a expr * 'a expr -> 'a expr
   | Sub : 'a expr * 'a expr -> 'a expr
   | Smul : float * 'a expr -> 'a expr
-  | Dot : float array * [> `Affine ] expr -> [> `Affine ] expr
-  | MatMul : float array array * [> `Affine ] expr -> [> `Affine ] expr
-  (* Convex atoms — require affine input, produce convex *)
-  | Quad_form : [ `Affine ] expr * float array array -> [> `Convex ] expr
-  | Norm2 : [ `Affine ] expr -> [> `Convex ] expr
-  | Sum_sq : [ `Affine ] expr -> [> `Convex ] expr
-  | Abs : [ `Affine ] expr -> [> `Convex ] expr
-  (* Concave atoms — require affine input, produce concave *)
-  | Log : [ `Affine ] expr -> [> `Concave ] expr
-  | Sqrt : [ `Affine ] expr -> [> `Concave ] expr
-  (* Negation flips curvature *)
-  | Neg_cvx : [> `Convex ] expr -> [> `Concave ] expr
-  | Neg_ccv : [> `Concave ] expr -> [> `Convex ] expr
-  | Neg_aff : [ `Affine ] expr -> [> `Affine ] expr
-
-type error = Osqp_error of Osqp.error | Scs_error of Scs.error
+  | Dot : float array * affine expr -> affine expr
+  | MatMul : float array array * affine expr -> affine expr
+  (* Convex atoms — affine input only (nonmonotone) *)
+  | Quad_form : affine expr * float array array -> convex expr
+  | Norm2 : affine expr -> convex expr
+  | Sum_sq : affine expr -> convex expr
+  | Abs : affine expr -> convex expr
+  (* Concave atoms — accept affine or concave input (increasing) *)
+  | Log : concave expr -> concave expr
+  | Sqrt : concave expr -> concave expr
+  (* Negation — three constructors preserve static curvature *)
+  | Neg_aff : affine expr -> affine expr
+  | Neg_cvx : convex expr -> concave expr
+  | Neg_ccv : concave expr -> convex expr
 
 module Expr = struct
-  let var v = Var v
+  let var dim = Var (Var.make dim)
+  let param name value = Param (Param.make name value)
   let const a = Const a
   let scalar f = Scalar f
   let ( + ) a b = Add (a, b)
   let ( - ) a b = Sub (a, b)
-  let ( *. ) s e = Smul (s, e)
+
+  let ( *. ) s e =
+    if s >= 0.0 then Smul (s, e)
+    else invalid_arg "Smul: negative scalar, use neg/neg_cvx/neg_ccv explicitly"
+
   let dot c e = Dot (c, e)
   let mat_mul a e = MatMul (a, e)
-  let quad_form e p = Quad_form (e, p)
+
+  let quad_form e p =
+    let p = p |> assert_symmetric |> assert_psd in
+    Quad_form (e, p)
+
   let norm2 e = Norm2 e
-  let sum_eq e = Sum_sq e
+  let sum_sq e = Sum_sq e
   let abs e = Abs e
   let log e = Log e
   let sqrt e = Sqrt e
+  let neg e = Neg_aff e
   let neg_ccx e = Neg_cvx e
   let neg_ccv e = Neg_ccv e
-  let neg_aff e = Neg_aff e
 end
 
 type constraint_ =
-  | Leq :
-      [< `Convex | `Affine ] expr * [< `Concave | `Affine ] expr
-      -> constraint_
-  | Geq :
-      [< `Concave | `Affine ] expr * [< `Convex | `Affine ] expr
-      -> constraint_
-  | Eq : [ `Affine ] expr * [ `Affine ] expr -> constraint_
+  | Leq : convex expr * concave expr -> constraint_
+  | Geq : concave expr * convex expr -> constraint_
+  | Eq : affine expr * affine expr -> constraint_
 
 module Constraint = struct
   type t = constraint_
@@ -71,40 +95,64 @@ module Constraint = struct
   let ( == ) a b = Eq (a, b)
 end
 
-type problem =
-  | Minimize : [< `Convex | `Affine ] expr * Constraint.t list -> problem
-  | Maximize : [< `Concave | `Affine ] expr * Constraint.t list -> problem
-
 module Problem = struct
-  type t = problem
+  type solver_problem =
+    | QP of {
+        p : float array array;
+        q : float array;
+        a : float array array;
+        l : float array;
+        u : float array;
+      }
+    | Conic of {
+        p : float array array;
+        c : float array;
+        a : float array array;
+        b : float array;
+        cone : Scs.cone;
+      }
 
-  let is_qp p =
-    let rec is_qp_expr : type a. a expr -> bool = function
-      | Var _ | Const _ | Scalar _ -> true
-      | Add (a, b) | Sub (a, b) -> is_qp_expr a && is_qp_expr b
-      | Smul (_, e)
-      | Dot (_, e)
-      | MatMul (_, e)
-      | Quad_form (e, _)
-      | Sum_sq e
-      | Neg_aff e ->
-          is_qp_expr e
-      | Norm2 _ | Abs _ | Log _ | Sqrt _ | Neg_ccv _ | Neg_cvx _ -> false
-    in
-    let is_linear_expr : type a. a expr -> bool = function
-      | Var _ | Const _ | Scalar _ -> true
-      | Add (a, b) | Sub (a, b) -> is_linear_expr a && is_linear_expr b
-      | Smul (_, e) | Dot (_, e) | Neg_aff e -> is_linear_expr e
-      | _ -> false
-    in
-    let is_linear_constraint_expr = function
-      | Leq (a, b) | Geq (a, b) | Eq (a, b) ->
-          is_linear_expr a && is_linear_expr b
-    in
-    match problem with
+  type t =
+    | Minimize : [< `Convex | `Affine ] expr * Constraint.t list -> t
+    | Maximize : [< `Concave | `Affine ] expr * Constraint.t list -> t
+
+  let rec is_qp_expr : type a. a expr -> bool = function
+    | Var _ | Const _ | Scalar _ | Param _ -> true
+    | Add (a, b) | Sub (a, b) -> is_qp_expr a && is_qp_expr b
+    | Smul (_, e) -> is_qp_expr e
+    | Dot (_, e) | MatMul (_, e) -> is_qp_expr e
+    | Quad_form _ -> true
+    | Sum_sq e | Neg_aff e -> is_qp_expr e
+    | Norm2 _ | Abs _ | Log _ | Sqrt _ -> false
+    | Neg_cvx _ | Neg_ccv _ -> false
+
+  let is_qp_constraint = function
+    | Leq (a, b) -> is_qp_expr a && is_qp_expr b
+    | Geq (a, b) -> is_qp_expr a && is_qp_expr b
+    | Eq (a, b) -> is_qp_expr a && is_qp_expr b
+
+  let is_qp = function
     | Minimize (obj, constrs) ->
-        is_qp_expr obj && List.for_all is_linear_constraint_expr constrs
+        is_qp_expr obj && List.for_all is_qp_constraint constrs
     | Maximize _ -> false
+
+  let collect_vars expr =
+    let rec aux : type a. a expr -> Var.t list -> Var.t list =
+     fun e acc ->
+      match e with
+      | Var v ->
+          if List.exists (fun u -> u.id = v.id) acc then acc else v :: acc
+      | Param _ | Const _ | Scalar _ -> acc
+      | Add (a, b) | Sub (a, b) -> aux a acc |> aux b
+      | Smul (_, e) -> aux e acc
+      | Dot (_, e) | MatMul (_, e) -> aux e acc
+      | Quad_form (e, _) | Norm2 e | Sum_sq e | Abs e -> aux e acc
+      | Log e | Sqrt e -> aux e acc
+      | Neg_cvx e -> aux e acc
+      | Neg_ccv e -> aux e acc
+      | Neg_aff e -> aux e acc
+    in
+    aux expr [] |> List.sort (fun a b -> Int.compare a.id b.id)
 
   (* let compile_qp = () *)
   (* let compile_conic = () *)

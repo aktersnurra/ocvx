@@ -142,12 +142,12 @@ let to_scs_data ~a ?p ~b ~c () =
         check_symmetric p
         |> Result.map_error (fun e -> Invalid_data e)
         |> Result.map (fun p ->
-            let mat, _p = upper_triangular p |> csc_of_dense |> scs_of_csc in
+            let mat, _p = upper_triangular p |> Csc.of_dense |> scs_of_csc in
             (Some mat, Some _p))
   in
   let m = Array.length a in
   let n = Array.length a.(0) in
-  let a_mat, _a = csc_of_dense a |> scs_of_csc in
+  let a_mat, _a = Csc.of_dense a |> scs_of_csc in
   let* p_mat, _p = prepare_p p in
   let _b, b_ptr = floats b in
   let _c, c_ptr = floats c in
