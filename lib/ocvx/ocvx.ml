@@ -113,8 +113,8 @@ module Problem = struct
       }
 
   type t =
-    | Minimize : [< `Convex | `Affine ] expr * Constraint.t list -> t
-    | Maximize : [< `Concave | `Affine ] expr * Constraint.t list -> t
+    | Minimize : convex expr * Constraint.t list -> t
+    | Maximize : concave expr * Constraint.t list -> t
 
   let rec is_qp_expr : type a. a expr -> bool = function
     | Var _ | Const _ | Scalar _ | Param _ -> true
