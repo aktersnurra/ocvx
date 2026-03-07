@@ -196,9 +196,7 @@ let define_qp ~p ~q ~a ~l ~u =
   let n = Array.length q in
   let m = Array.length l in
   let* p =
-    check_symmetric p
-    |> Result.map (fun p -> upper_triangular p |> Csc.of_dense |> osqp_of_csc)
-    |> Result.map_error (fun e -> Invalid_data e)
+    assert_symmetric p |> to_upper_triangular p |> Csc.of_dense |> osqp_of_csc
   in
   let a = Csc.of_dense a |> osqp_of_csc in
   let q = floats q |> fst in
@@ -289,7 +287,7 @@ let update_matrices t ?p ?a () =
   in
   let px =
     Option.map
-      (fun p -> upper_triangular p |> Csc.of_dense |> fun c -> floats c.values)
+      (fun p -> to_upper_triangular p |> Csc.of_dense |> fun c -> floats c.values)
       p
   in
   let ax = Option.map (fun a -> Csc.of_dense a |> fun c -> floats c.values) a in
