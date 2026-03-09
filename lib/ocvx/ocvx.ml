@@ -24,6 +24,30 @@ module Param = struct
   let set p value = { p with value }
 end
 
+module Solution = struct 
+  type solution = {
+    x      : float array;
+    duals  : float array;
+    slacks : float array option;
+  }
+
+  let get sol var =
+    match var.index with
+    | None -> invalid_arg "get: variable has no assigned index"
+    | Some idx -> Array.sub sol.x idx var.dim
+
+  let make x y ?s () = { x; duals = y; slacks = s }
+
+  let of_osqp (sol: Osqp.solution) = make sol.x sol.y ()
+
+  let of_scs (sol: Scs.solution) = make sol.x sol.y sol.s ()
+end
+
+module Var_set = Set.Make(struct 
+  type t = Var.t
+  let compare a b = Int.compare a.id b.id
+end)
+
 (* Closed variant tags — affine is a subtype of both convex and concave *)
 type affine = [ `Affine ]
 type convex = [ `Affine | `Convex ]
@@ -69,6 +93,7 @@ module Expr = struct
   let mat_mul a e = MatMul (a, e)
 
   let quad_form e p =
+    (* TODO: remove and let the BE handle it *)
     let p = p |> assert_symmetric |> assert_psd in
     Quad_form (e, p)
 
@@ -95,7 +120,7 @@ module Constraint = struct
   let ( == ) a b = Eq (a, b)
 end
 
-module Problem = struct
+module Compiler = struct 
   type solver_problem =
     | QP of {
         p : float array array;
@@ -112,9 +137,12 @@ module Problem = struct
         cone : Scs.cone;
       }
 
-  type t =
-    | Minimize : convex expr * Constraint.t list -> t
-    | Maximize : concave expr * Constraint.t list -> t
+  type qp_coeffs = {
+    p : float array array;
+    q : float array;
+  }
+
+
 
   let rec is_qp_expr : type a. a expr -> bool = function
     | Var _ | Const _ | Scalar _ | Param _ -> true
@@ -141,7 +169,7 @@ module Problem = struct
      fun e acc ->
       match e with
       | Var v ->
-          if List.exists (fun u -> u.id = v.id) acc then acc else v :: acc
+          Var_set.add v acc
       | Param _ | Const _ | Scalar _ -> acc
       | Add (a, b) | Sub (a, b) -> aux a acc |> aux b
       | Smul (_, e) -> aux e acc
@@ -152,18 +180,50 @@ module Problem = struct
       | Neg_ccv e -> aux e acc
       | Neg_aff e -> aux e acc
     in
-    aux expr [] |> List.sort (fun a b -> Int.compare a.id b.id)
+    aux expr Var_set.empty |> Var_set.elements
+
+    let blit_block dst src idx =
+      for i = 0 to Array.length src - 1 do
+        for j = 0 to Array.length src.(0) - 1 do
+          dst.(idx + i).(idx + j) <- src.(i).(j)
+        done
+      done
+
+  let extract_objective : type a. a expr -> qp_coeffs -> qp_coeffs =
+    fun e acc -> match e with
+      | Quad_form (Var v, p) -> blit_block acc.p p v.index
+
+  let extract_qp (Minimize (obj, constrs)) =
+    let vars = Var_set.union (collect_vars obj) (collect_vars constrs) in
+    
+
+  let compile p = 
+    if is_qp p then begin
+      let compiled = extract_qp p in
+    end
+    else begin
+
+      end
 
   (* let compile_qp = () *)
   (* let compile_conic = () *)
-  (* let minimize o c = Minimize (o, c) *)
-  (* let maximize o c = Maximize (o, c) *)
-  (* let compile p = () *)
-  (**)
-  (* let solve p = *)
-  (*   if is_qp p then compile_qp p |> run_osqp else compile_conic p |> run_scs *)
-  (**)
-  (* let recompile c p = () *)
+
 end
 
-let ones n = Array.make n 1.0
+(* module Problem = struct *)
+(**)
+(*   type t = *)
+(*     | Minimize : convex expr * Constraint.t list -> t *)
+(*     | Maximize : concave expr * Constraint.t list -> t *)
+(**)
+(*   (* let minimize o c = Minimize (o, c) *) *)
+(*   (* let maximize o c = Maximize (o, c) *) *)
+(*   (* let compile p = () *) *)
+(*   (**) *)
+(*   (* let solve p = *) *)
+(*   (*   if is_qp p then compile_qp p |> run_osqp else compile_conic p |> run_scs *) *)
+(*   (**) *)
+(*   (* let recompile c p = () *) *)
+(* end *)
+(**)
+(* let ones n = Array.make n 1.0 *)
